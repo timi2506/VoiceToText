@@ -7,7 +7,7 @@ public class SpeechTranscriber: NSObject, ObservableObject {
 
     @Published public var transcribedText: String = ""
     @Published public var isRecording: Bool = false
-    @Published public var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
+    @Published public var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermed
     @Published public var error: Error?
 
     private var speechRecognizer: SFSpeechRecognizer?
@@ -16,6 +16,9 @@ public class SpeechTranscriber: NSObject, ObservableObject {
     private let audioEngine = AVAudioEngine()
 
     private var currentLocale: Locale
+
+    // New property for inactivity timeout
+    public var silenceTimeoutDuration: TimeInterval = 2.0 // Default to 2 seconds of inactivity
 
     public init(locale: Locale = Locale.current) {
         self.currentLocale = locale
@@ -26,7 +29,6 @@ public class SpeechTranscriber: NSObject, ObservableObject {
     }
 
     public func requestAuthorization() async {
-        // Request Speech Recognition permission
         SFSpeechRecognizer.requestAuthorization { authStatus in
             DispatchQueue.main.async {
                 self.authorizationStatus = authStatus
@@ -36,12 +38,10 @@ public class SpeechTranscriber: NSObject, ObservableObject {
             }
         }
 
-        // Request Microphone permission
         await AVAudioSession.sharedInstance().requestRecordPermission { granted in
             if !granted {
                 DispatchQueue.main.async {
                     self.error = SpeechTranscriberError.microphoneAccessDenied
-                    // Update authorization status if microphone is denied, even if speech was granted
                     self.authorizationStatus = .denied
                 }
             }
@@ -79,6 +79,10 @@ public class SpeechTranscriber: NSObject, ObservableObject {
         }
         recognitionRequest.shouldReportPartialResults = true
 
+        // --- NEW LINE: Set the endOfSpeechTimeout ---
+        recognitionRequest.endOfSpeechTimeout = silenceTimeoutDuration
+
+
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer, when) in
@@ -102,6 +106,8 @@ public class SpeechTranscriber: NSObject, ObservableObject {
                 isFinal = result.isFinal
             }
 
+            // The 'taskError' will be non-nil if the endOfSpeechTimeout is reached
+            // or if other errors occur. If isFinal is true, it means speech completed.
             if taskError != nil || isFinal {
                 self.audioEngine.stop()
                 inputNode.removeTap(onBus: 0)
@@ -110,7 +116,14 @@ public class SpeechTranscriber: NSObject, ObservableObject {
                 self.isRecording = false
 
                 if let taskError = taskError {
-                    self.error = SpeechTranscriberError.recognitionFailed(taskError)
+                    // Check if the error is due to silence timeout
+                    if let sferror = taskError as? SFSpeechRecognizerError, sferror.code == .endOfSpeechDetected {
+                        // This is expected behavior for silence timeout, so we don't necessarily set `self.error`
+                        // unless you want to explicitly inform the user that it stopped due to silence.
+                        print("Transcription stopped due to inactivity.")
+                    } else {
+                        self.error = SpeechTranscriberError.recognitionFailed(taskError)
+                    }
                 }
             }
         }
@@ -166,7 +179,6 @@ extension SpeechTranscriber: SFSpeechRecognizerDelegate {
                 }
             }
         } else {
-            // Corrected way to check and clear error
             if let currentError = self.error as? SpeechTranscriberError, case .recognizerNotAvailable = currentError {
                 self.error = nil
             }
