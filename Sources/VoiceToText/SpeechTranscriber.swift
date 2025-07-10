@@ -26,18 +26,22 @@ public class SpeechTranscriber: NSObject, ObservableObject {
     }
 
     public func requestAuthorization() async {
-        let speechAuthStatus = await SFSpeechRecognizer.requestAuthorization()
-        DispatchQueue.main.async {
-            self.authorizationStatus = speechAuthStatus
-            if speechAuthStatus == .denied || speechAuthStatus == .restricted {
-                self.error = SpeechTranscriberError.speechRecognitionDenied
+        // Request Speech Recognition permission
+        SFSpeechRecognizer.requestAuthorization { authStatus in
+            DispatchQueue.main.async {
+                self.authorizationStatus = authStatus
+                if authStatus == .denied || authStatus == .restricted {
+                    self.error = SpeechTranscriberError.speechRecognitionDenied
+                }
             }
         }
 
+        // Request Microphone permission
         await AVAudioSession.sharedInstance().requestRecordPermission { granted in
             if !granted {
                 DispatchQueue.main.async {
                     self.error = SpeechTranscriberError.microphoneAccessDenied
+                    // Update authorization status if microphone is denied, even if speech was granted
                     self.authorizationStatus = .denied
                 }
             }
@@ -162,7 +166,8 @@ extension SpeechTranscriber: SFSpeechRecognizerDelegate {
                 }
             }
         } else {
-            if case .recognizerNotAvailable = self.error {
+            // Corrected way to check and clear error
+            if let currentError = self.error as? SpeechTranscriberError, case .recognizerNotAvailable = currentError {
                 self.error = nil
             }
         }
