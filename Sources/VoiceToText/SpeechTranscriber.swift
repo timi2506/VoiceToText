@@ -7,7 +7,7 @@ public class SpeechTranscriber: NSObject, ObservableObject {
 
     @Published public var transcribedText: String = ""
     @Published public var isRecording: Bool = false
-    @Published public var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermed
+    @Published public var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     @Published public var error: Error?
 
     private var speechRecognizer: SFSpeechRecognizer?
